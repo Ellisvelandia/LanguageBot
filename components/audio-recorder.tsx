@@ -94,6 +94,8 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSpeechRef = useRef<number>(Date.now())
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -104,7 +106,14 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
         recognitionRef.current.interimResults = true
         
         const handleRecognitionResult = (event: SpeechRecognitionEvent) => {
+          lastSpeechRef.current = Date.now() // Reset silence timer when speech is detected
           const result = event.results[event.results.length - 1]
+          
+          // Clear any existing silence timeout
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+          }
+          
           if (result.isFinal) {
             const transcript = result[0].transcript
             const confidence = result[0].confidence
@@ -118,11 +127,40 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
             }
 
             onAudioSubmit({ transcript, confidence, pronunciationScore, message })
-            setIsProcessing(true);
+            setIsProcessing(true)
           }
+
+          // Set a new silence timeout
+          silenceTimeoutRef.current = setTimeout(() => {
+            if (isRecording && Date.now() - lastSpeechRef.current >= 5000) {
+              console.log('Silence detected - stopping recording')
+              stopRecording()
+            }
+          }, 5000)
         }
 
         recognitionRef.current.onresult = handleRecognitionResult
+
+        recognitionRef.current.onspeechstart = () => {
+          lastSpeechRef.current = Date.now()
+          // Clear any existing silence timeout
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+          }
+        }
+
+        recognitionRef.current.onspeechend = () => {
+          // Start silence detection timer
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+          }
+          silenceTimeoutRef.current = setTimeout(() => {
+            if (isRecording && Date.now() - lastSpeechRef.current >= 5000) {
+              console.log('Silence detected - stopping recording')
+              stopRecording()
+            }
+          }, 5000)
+        }
 
         recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
           console.error('Speech recognition error:', event.error)
@@ -131,33 +169,37 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
           switch (event.error) {
             case 'aborted':
               // Clean stop of recording
-              setIsRecording(false);
-              break;
+              setIsRecording(false)
+              break
             case 'no-speech':
-              console.log('No speech detected. Please try speaking again.');
-              setIsRecording(false);
-              break;
+              console.log('No speech detected. Please try speaking again.')
+              setIsRecording(false)
+              break
             case 'network':
-              console.error('Network error occurred');
-              setIsRecording(false);
-              break;
+              console.error('Network error occurred')
+              setIsRecording(false)
+              break
             case 'not-allowed':
-              console.error('Microphone access denied');
-              setIsRecording(false);
-              break;
+              console.error('Microphone access denied')
+              setIsRecording(false)
+              break
             default:
-              console.error('Speech recognition error:', event.error);
-              setIsRecording(false);
+              console.error('Speech recognition error:', event.error)
+              setIsRecording(false)
           }
-          setIsProcessing(false);
+          setIsProcessing(false)
         }
 
         recognitionRef.current.onend = () => {
           // Always ensure recording state is false when recognition ends
-          setIsRecording(false);
+          setIsRecording(false)
           if (!isProcessing) {
             // If we're not processing a final result, reset processing state
-            setIsProcessing(false);
+            setIsProcessing(false)
+          }
+          // Clear any existing silence timeout
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
           }
         }
       }
@@ -167,37 +209,46 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
     return () => {
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.stop()
         } catch (error) {
-          console.error('Error stopping recognition on cleanup:', error);
+          console.error('Error stopping recognition on cleanup:', error)
         }
       }
-    };
-  }, [onAudioSubmit, expectedText])
+      // Clear any existing silence timeout
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current)
+      }
+    }
+  }, [onAudioSubmit, expectedText, isRecording])
 
   const startRecording = () => {
     try {
       if (recognitionRef.current) {
-        setIsRecording(true);
-        setIsProcessing(false);
-        recognitionRef.current.start();
+        setIsRecording(true)
+        setIsProcessing(false)
+        lastSpeechRef.current = Date.now()
+        recognitionRef.current.start()
       }
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      setIsRecording(false);
-      setIsProcessing(false);
+      console.error('Failed to start recording:', error)
+      setIsRecording(false)
+      setIsProcessing(false)
     }
   }
 
   const stopRecording = () => {
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        setIsRecording(false);
+        recognitionRef.current.stop()
+        setIsRecording(false)
+        // Clear any existing silence timeout
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current)
+        }
       }
     } catch (error) {
-      console.error('Failed to stop recording:', error);
-      setIsRecording(false);
+      console.error('Failed to stop recording:', error)
+      setIsRecording(false)
     }
   }
 
