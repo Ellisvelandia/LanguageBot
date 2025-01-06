@@ -18,6 +18,7 @@ export default function LanguageBot() {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isRecordingEnabled, setIsRecordingEnabled] = useState(true)
+  const [isAutoSpeakEnabled, setIsAutoSpeakEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -33,7 +34,7 @@ export default function LanguageBot() {
     if (messages.length === 0) {
       const initialGreeting = {
         id: nanoid(),
-        role: 'assistant',
+        role: 'assistant' as const,
         content: "Hi! I'm here to chat and help you practice English. Feel free to start speaking or typing!",
         timestamp: Date.now()
       };
@@ -42,12 +43,12 @@ export default function LanguageBot() {
   }, []);
 
   useEffect(() => {
-    // Auto-speak only assistant messages
+    // Auto-speak only assistant messages when auto-speak is enabled
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage && lastMessage.role === 'assistant') {
+    if (lastMessage && lastMessage.role === 'assistant' && isAutoSpeakEnabled) {
       handleSpeak(lastMessage.content);
     }
-  }, [messages]);
+  }, [messages, isAutoSpeakEnabled]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -87,16 +88,23 @@ export default function LanguageBot() {
   }
 
   const handleAudioSubmit = async (result: any) => {
+    setIsAutoSpeakEnabled(false); // Disable auto-speak when submitting audio
     setIsRecordingEnabled(false); // Disable recording after submission
     await processInput(result.message);
+    setIsAutoSpeakEnabled(true); // Re-enable auto-speak after processing
   }
 
-  function handleSpeak(text: string) {
+  async function handleSpeak(text: string) {
     if (isSpeaking) {
       stopSpeaking();
+      setIsSpeaking(false);
+      return;
     }
     setIsSpeaking(true);
-    speak(text, () => setIsSpeaking(false));
+    speak(text, () => {
+      setIsSpeaking(false);
+      setIsAutoSpeakEnabled(true);
+    });
   }
 
   function handleResetConversation() {

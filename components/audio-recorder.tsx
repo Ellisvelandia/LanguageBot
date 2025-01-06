@@ -100,6 +100,8 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
       if (SpeechRecognition) {
         recognitionRef.current = new SpeechRecognition()
+        recognitionRef.current.continuous = true
+        recognitionRef.current.interimResults = true
         
         const handleRecognitionResult = (event: SpeechRecognitionEvent) => {
           const result = event.results[event.results.length - 1]
@@ -120,53 +122,96 @@ export function AudioRecorder({ onAudioSubmit, expectedText }: AudioRecorderProp
           }
         }
 
-        recognitionRef.current.continuous = true
-        recognitionRef.current.interimResults = true
-        
         recognitionRef.current.onresult = handleRecognitionResult
 
         recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
           console.error('Speech recognition error:', event.error)
-          setIsRecording(false)
-          setIsProcessing(false)
+          
+          // Handle different types of errors
+          switch (event.error) {
+            case 'aborted':
+              // Clean stop of recording
+              setIsRecording(false);
+              break;
+            case 'no-speech':
+              console.log('No speech detected. Please try speaking again.');
+              setIsRecording(false);
+              break;
+            case 'network':
+              console.error('Network error occurred');
+              setIsRecording(false);
+              break;
+            case 'not-allowed':
+              console.error('Microphone access denied');
+              setIsRecording(false);
+              break;
+            default:
+              console.error('Speech recognition error:', event.error);
+              setIsRecording(false);
+          }
+          setIsProcessing(false);
+        }
+
+        recognitionRef.current.onend = () => {
+          // Always ensure recording state is false when recognition ends
+          setIsRecording(false);
+          if (!isProcessing) {
+            // If we're not processing a final result, reset processing state
+            setIsProcessing(false);
+          }
         }
       }
     }
+
+    // Cleanup function
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (error) {
+          console.error('Error stopping recognition on cleanup:', error);
+        }
+      }
+    };
   }, [onAudioSubmit, expectedText])
 
   const startRecording = () => {
-    setIsRecording(true)
-    setIsProcessing(false)
-    recognitionRef.current?.start()
+    try {
+      if (recognitionRef.current) {
+        setIsRecording(true);
+        setIsProcessing(false);
+        recognitionRef.current.start();
+      }
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setIsRecording(false);
+      setIsProcessing(false);
+    }
   }
 
   const stopRecording = () => {
-    setIsRecording(false)
-    recognitionRef.current?.stop()
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        setIsRecording(false);
+      }
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      setIsRecording(false);
+    }
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {!isRecording ? (
-        <Button
-          onClick={startRecording}
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          disabled={isProcessing}
-        >
-          <Volume2 className="h-4 w-4" />
-        </Button>
+    <Button
+      onClick={isRecording ? stopRecording : startRecording}
+      className={`${isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} transition-colors`}
+      disabled={isProcessing}
+    >
+      {isRecording ? (
+        <VolumeX className="h-4 w-4" />
       ) : (
-        <Button
-          onClick={stopRecording}
-          variant="outline"
-          size="icon"
-          className="h-8 w-8 bg-red-500 hover:bg-red-600"
-        >
-          <VolumeX className="h-4 w-4" />
-        </Button>
+        <Volume2 className="h-4 w-4" />
       )}
-    </div>
+    </Button>
   )
 }
